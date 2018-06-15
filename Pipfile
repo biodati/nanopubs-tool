@@ -1,0 +1,16 @@
+[[source]]
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+click = "*"
+jsonschema = "*"
+structlog = "*"
+python-dateutil = "*"
+colorama = "*"
+pytz = "*"
+bel = "*"
+
+[dev-packages]
+"287d9b9" = {path = "./../bel", editable = true}

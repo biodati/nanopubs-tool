@@ -1,0 +1,21 @@
+namespaces:
+  GOCCID: GO
+  GOBP: GO
+  GOCC: GO
+  GOBPID: GO
+  MESHCS: MESH
+  MESHPPID: MESH
+  MESHCID: MESH
+  MESHDID: MESH
+  MESHD: MESH
+  MESHPP: MESH
+  EGID: EG
+  DOID: DO
+  SPID: SP
+  CHEMBLID: CHEMBL
+  CHEBIID: CHEBI
+
+# Annotation maps
+annotations:
+  MeSHAnatomy: Anatomy
+  Organism: Species

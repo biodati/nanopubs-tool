@@ -1,0 +1,40 @@
+# YAML Configuration file for BELbio tools
+# Uses virtualenv for BELbio API and server for Elasticsearch/ArangoDB
+
+# Location of this file can be found in one of the following locations
+#   first found is the one that is used
+#   - ./belbio_conf.yml    (just a regular file in the local directory or any parent directory)
+#   - ~/.belbio_conf       (a dotfile in the home directory)
+
+
+# bel package settings
+bel:
+  lang:
+    default_bel_version: 2.0.0
+
+  nanopub:
+    # JSON Schema for BEL Nanopubs (in YAML format :)
+    schema_uri: https://raw.githubusercontent.com/belbio/schemas/master/schemas/nanopub_bel-1.0.0.yaml
+
+# bel_api service settings
+bel_api:
+
+  # For accessing localhost from docker on a mac, use special dns name 'docker.for.mac.localhost'
+  servers:
+    server_type: DEV
+
+    # api_url: https://api.bel.bio/v1
+    api_url: https://belapi.XXX.biodati.com/v1
+
+    # elasticsearch: http://api.bel.bio:9210
+    elasticsearch: http://XXX.biodati.com:9210
+
+    arangodb_host: XXX.biodati.com
+    arangodb_protocol: http
+    arangodb_port: 8529
+    arangodb_username: ''
+    # arangodb_password - comes from secrets file - will be merged in as config['secrets']['bel_api']['servers']['arangodb_password']
+
+    # Get from https://www.ncbi.nlm.nih.gov/account/settings in order to query up to 10 PMID's/sec
+    pubmed_api_key: XXX
+
