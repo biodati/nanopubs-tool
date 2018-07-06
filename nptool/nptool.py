@@ -22,7 +22,7 @@ import bel.nanopub.nanopubs
 
 import bel.lang.migrate_1_2
 
-from log_setup import get_logger
+from nptool.log_setup import get_logger
 
 log = get_logger()
 
@@ -150,10 +150,10 @@ def add_pubmed_info(nanopub: Nanopub) -> Nanopub:
                     if pmid:
                         pubmed = bel.nanopub.pubmed.get_pubmed(pmid)
                         if pubmed:
-                            nanopub['nanopub']['citation']['authors'] = pubmed['authors']
-                            nanopub['nanopub']['citation']['title'] = pubmed['title']
-                            nanopub['nanopub']['citation']['source_name'] = pubmed['journal_title']
-                            nanopub['nanopub']['citation']['date_published'] = pubmed['pub_date']
+                            nanopub['nanopub']['citation']['authors'] = pubmed.get('authors', '')
+                            nanopub['nanopub']['citation']['title'] = pubmed.get('title', '')
+                            nanopub['nanopub']['citation']['source_name'] = pubmed.get('journal_title', '')
+                            nanopub['nanopub']['citation']['date_published'] = pubmed.get('pub_date', '')
 
     return nanopub
 
@@ -253,7 +253,10 @@ def update_metadata(nanopub, metadata, del_md):
     if 'nanopub' in nanopub:
         # Delete metadata first
         for md_key in del_md:
-            del nanopub['nanopub']['metadata'][md_key]
+            try:
+                del nanopub['nanopub']['metadata'][md_key]
+            except Exception:
+                pass
 
         for key in metadata:
             nanopub['nanopub']['metadata'][key] = metadata[key]
@@ -289,7 +292,10 @@ def validate_nanopub(nanopub):
     return nanopub
 
 
-@click.command()
+CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
+
+
+@click.command(context_settings=CONTEXT_SETTINGS)
 @click.option('--input_fn', '-i', default='-', help='See input_fn options above')
 @click.option('--output_fn', '-o', default='-', help='See output_fn options above')
 @click.option('--bel1', is_flag=True, default=False, help='Convert BEL1 to BEL 2.0.0')
@@ -431,6 +437,8 @@ default_ns_mappings = {
             if validate:
                 np = validate_nanopub(np)
 
+            print('NP', json.dumps(np, indent=4))
+
             if yaml_flag or json_flag:
                 docs.append(np)
             else:
@@ -458,7 +466,9 @@ default_ns_mappings = {
                 np = fix_annotations(np)
             if metadata or del_md:
                 np = update_metadata(np, metadata, del_md)
-            if dedupe_nanopubs(np):
+
+            if dedupe and dedupe_nanopubs(np):
+                print('Skipping nanopub as it is a duplicate')
                 continue
             if validate:
                 np = validate_nanopub(np)

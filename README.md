@@ -22,6 +22,9 @@ Edit belbio_conf.yml and update the XXX placeholders
 
     nptools.py --help
 
+Add .env file with the following
+
+    BELAPI_URL=http://api.bel.bio/v1
 
 ## Command help
 
