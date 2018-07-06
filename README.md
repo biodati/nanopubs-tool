@@ -1,8 +1,19 @@
 # nanopubs-tool
 
-Tool to transform nanopubs (from BELscript), add pubmed info, add metadata, etc
+Tool to transform nanopubs: from BELscript, BEL1 to BEL2, add pubmed info, add metadata, etc
 
-## Setup
+## Install
+
+Make sure you are using Python 3.6+
+
+    pip install git+git://github.com/biodati/nanopubs-tool.git
+
+Now you can run nptool from your command line:
+
+    nptool -h
+
+
+## Setup for Development
 
 Make sure you are using Python 3.6+
 
