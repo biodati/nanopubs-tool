@@ -26,7 +26,7 @@ from nptool.log_setup import get_logger
 
 log = get_logger()
 
-belapi_url = os.getenv('BELAPI_URL', None)
+belapi_url = os.getenv('BELAPI_URL', 'https://api.bel.bio/v1')
 
 Nanopub = MutableMapping[str, Any]
 bo = BEL()
@@ -150,10 +150,14 @@ def add_pubmed_info(nanopub: Nanopub) -> Nanopub:
                     if pmid:
                         pubmed = bel.nanopub.pubmed.get_pubmed(pmid)
                         if pubmed:
-                            nanopub['nanopub']['citation']['authors'] = pubmed.get('authors', '')
-                            nanopub['nanopub']['citation']['title'] = pubmed.get('title', '')
-                            nanopub['nanopub']['citation']['source_name'] = pubmed.get('journal_title', '')
-                            nanopub['nanopub']['citation']['date_published'] = pubmed.get('pub_date', '')
+                            if pubmed.get('authors'):
+                                nanopub['nanopub']['citation']['authors'] = pubmed.get('authors')
+                            if pubmed.get('title'):
+                                nanopub['nanopub']['citation']['title'] = pubmed.get('title')
+                            if pubmed.get('journal_title'):
+                                nanopub['nanopub']['citation']['source_name'] = pubmed.get('journal_title')
+                            if pubmed.get('pub_date'):
+                                nanopub['nanopub']['citation']['date_published'] = pubmed.get('pub_date')
 
     return nanopub
 
@@ -259,7 +263,12 @@ def update_metadata(nanopub, metadata, del_md):
                 pass
 
         for key in metadata:
-            nanopub['nanopub']['metadata'][key] = metadata[key]
+            if metadata[key] in ['False', 'false']:
+                nanopub['nanopub']['metadata'][key] = False
+            elif metadata[key] in ['True', 'true']:
+                nanopub['nanopub']['metadata'][key] = True
+            else:
+                nanopub['nanopub']['metadata'][key] = metadata[key]
 
     return nanopub
 
@@ -300,7 +309,7 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 @click.option('--output_fn', '-o', default='-', help='See output_fn options above')
 @click.option('--bel1', is_flag=True, default=False, help='Convert BEL1 to BEL 2.0.0')
 @click.option('--pubmed', is_flag=True, default=False, help='Add pubmed info to nanopubs')
-@click.option('--fmt', default='medium', type=click.Choice(['short', 'medium', 'long']), help='Reformat to BEL Assertions to short, medium or long form')
+@click.option('--fmt', type=click.Choice(['short', 'medium', 'long']), help='Reformat to BEL Assertions to short, medium or long form')
 @click.option('--remap_fn', help='Namespace prefixes/Annotation types input YAML file - otherwise use builtin defaults, see example format above')
 @click.option('--remap', is_flag=True, default=False, help='Re-map namespace prefixes and annotation types - see default mappings above')
 @click.option('--fix_anno', is_flag=True, default=False, help='Enhance annotations - set ID and Label if a match is found')
@@ -352,10 +361,10 @@ annotations:
 metadata YAML format:
 
 \b
+"project": "Project ABC"
 "gd:creator": "Selventa"
-"gd:published": true
-"project": "something"
-
+"gd:published": true  # true or false - if missing defaults to false
+"gd:validation": ""
 
 Namespace prefix and Annotation Type mappings:
 
@@ -390,7 +399,7 @@ default_ns_mappings = {
     batches = 100
 
     (out_fh, yaml_flag, jsonl_flag, json_flag) = bel.nanopub.files.create_nanopubs_fh(output_fn)
-    bad_nanopubs_fh = open('bad_nanopubs.json', 'wt')
+    # bad_nanopubs_fh = open('bad_nanopubs.json', 'wt')
 
     if yaml_flag or json_flag:
         docs = []

@@ -4,6 +4,10 @@ Tool to transform nanopubs: from BELscript, BEL1 to BEL2, add pubmed info, add m
 
 ## Install
 
+Add the following ENV variable (or defaults to https://api.bel.bio/v1) - use your own BELAPI endpoint if desired.
+
+    BELAPI_URL=https://api.bel.bio/v1
+
 Make sure you are using Python 3.6+
 
     pip install git+git://github.com/biodati/nanopubs-tool.git
