@@ -4,9 +4,9 @@ Tool to transform nanopubs: from BELscript, BEL1 to BEL2, add pubmed info, add m
 
 ## Install
 
-Add the following ENV variable (or defaults to https://api.bel.bio/v1) - use your own BELAPI endpoint if desired.
+Add the following ENV variable (or defaults to https://api.bel.bio) - use your own BELAPI endpoint if desired.
 
-    BELAPI_URL=https://api.bel.bio/v1
+    BELAPI_URL=https://api.bel.bio
 
 Make sure you are using Python 3.6+
 
@@ -39,7 +39,7 @@ Edit belbio_conf.yml and update the XXX placeholders
 
 Add .env file with the following
 
-    BELAPI_URL=http://api.bel.bio/v1
+    BELAPI_URL=http://api.bel.bio
 
 ## Command help
 

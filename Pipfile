@@ -13,5 +13,3 @@ pytz = "*"
 bel = "*"
 cityhash = "*"
 
-[dev-packages]
-"287d9b9" = {path = "./../bel", editable = true}

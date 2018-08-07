@@ -26,7 +26,7 @@ from nptool.log_setup import get_logger
 
 log = get_logger()
 
-belapi_url = os.getenv('BELAPI_URL', 'https://api.bel.bio/v1')
+belapi_url = os.getenv('BELAPI_URL', 'https://api.bel.bio')
 
 Nanopub = MutableMapping[str, Any]
 bo = BEL()
