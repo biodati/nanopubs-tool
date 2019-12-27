@@ -16,7 +16,6 @@ Now you can run nptool from your command line:
 
     nptool -h
 
-
 ## Setup for Development
 
 Make sure you are using Python 3.6+
@@ -29,11 +28,11 @@ Run following commands:
 
 Edit belbio_conf.yml and update the XXX placeholders
 
-    pip install pipenv
+    Install poetry
 
-    pipenv install
+    poetry install
 
-    pipenv shell
+    poetry shell
 
     nptools.py --help
 

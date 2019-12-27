@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "nptool"
+version = "0.1.0"
+description = ""
+authors = ["William Hayes <william.s.hayes@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+click = "^7.0"
+jsonschema = "^3.2.0"
+structlog = "^19.2.0"
+python-dateutil = "^2.8.1"
+colorama = "^0.4.3"
+pytz = "^2019.3"
+bel = "^0.13.1"
+xxhash = "^1.4.3"
+python-arango = "^5.2.1"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+flake8 = "^3.7.9"
+
+[tool.poetry.scripts]
+nptool = "nptool.nptool:main"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"

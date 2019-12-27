@@ -1,5 +1,6 @@
 belbio_conf.yml
 belbio_secrets.yml
+nptool/cache.sqlite
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

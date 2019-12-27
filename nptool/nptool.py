@@ -1,39 +1,47 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3.6
 # -*- coding: utf-8 -*-
 
 """ Transform nanopubs
 
 """
-import os
-import json
-import yaml
-import click
-from typing import MutableMapping, Any, Iterator
 import gzip
+import json
+import os
 import re
 from time import sleep
-
-from bel import BEL
-import bel.nanopub.files
-import bel.nanopub.pubmed
-import bel.nanopub.validate
-import bel.nanopub.belscripts
-import bel.nanopub.nanopubs
+from typing import Any, Iterator, MutableMapping
 
 import bel.lang.migrate_1_2
-
+import bel.nanopub.belscripts
+import bel.nanopub.files
+import bel.nanopub.nanopubs
+import bel.nanopub.pubmed
+import bel.nanopub.validate
+import click
+import yaml
+from arango import ArangoClient
+from bel import BEL
 from nptool.log_setup import get_logger
+
+# import structlog
+# log = structlog.get_logger()
 
 log = get_logger()
 
-belapi_url = os.getenv('BELAPI_URL', 'https://api.bel.bio')
+belapi_url = os.getenv("BELAPI_URL", "https://belapi.thor.biodati.com")
+ARANGO_URL = os.getenv("ARANGO_URL", "http://thor:9529")
+
+arango_client = ArangoClient(hosts=f"{ARANGO_URL}")
+pubmed_db = arango_client.db("pubmed2020", username="root", password="")
+pubmed_json_coll = pubmed_db.collection("json")
+
 
 Nanopub = MutableMapping[str, Any]
 bo = BEL()
 
 np_hashes = {}
 
-schema_fn = '/Users/william/belbio/schemas/schemas/nanopub_bel-1.0.0.yaml'
+schema_fn = "/Users/william/belbio/schemas/schemas/nanopub_bel-1.0.0.yaml"
 
 default_ns_mappings = {
     "namespaces": {
@@ -53,35 +61,31 @@ default_ns_mappings = {
         "CHEMBLID": "CHEMBL",
         "CHEBIID": "CHEBI",
     },
-    "annotations": {
-        "MeSHAnatomy": "Anatomy",
-        "Organism": "Species",
-        "SpeciesNames": "Species",
-    }
+    "annotations": {"MeSHAnatomy": "Anatomy", "Organism": "Species", "SpeciesNames": "Species",},
 }
 
 
 def typo_check(fn):
 
-    if re.search('gz$', fn):
-        f = gzip.open(fn, 'rt')
+    if re.search("gz$", fn):
+        f = gzip.open(fn, "rt")
     else:
         try:
-            f = click.open_file(fn, mode='rt')
+            f = click.open_file(fn, mode="rt")
         except Exception as e:
-            log.info(f'Can not open file {fn}  Error: {e}')
+            log.info(f"Can not open file {fn}  Error: {e}")
             quit()
 
     flag = 0
     for line in f:
-        if re.search('\)[-=][>|]\w+\(', line):
-            print('Bad BELScript line', line)
+        if re.search("\)[-=][>|]\w+\(", line):
+            print("Bad BELScript line", line)
             flag = 1
-        elif re.search('\)\s+[-=][>|]\w+\(', line):
-            print('Bad BELScript line', line)
+        elif re.search("\)\s+[-=][>|]\w+\(", line):
+            print("Bad BELScript line", line)
             flag = 1
-        elif re.search('\)[-=][>|]\s+\w+\(', line):
-            print('Bad BELScript line', line)
+        elif re.search("\)[-=][>|]\s+\w+\(", line):
+            print("Bad BELScript line", line)
             flag = 1
 
     if flag:
@@ -94,13 +98,13 @@ def belscript(fn: str) -> Iterator[Nanopub]:
     typo_check(fn)
 
     try:
-        if re.search('gz$', fn):
-            f = gzip.open(fn, 'rt')
+        if re.search("gz$", fn):
+            f = gzip.open(fn, "rt")
         else:
             try:
-                f = click.open_file(fn, mode='rt')
+                f = click.open_file(fn, mode="rt")
             except Exception as e:
-                log.info(f'Can not open file {fn}  Error: {e}')
+                log.info(f"Can not open file {fn}  Error: {e}")
                 quit()
 
         for nanopub in bel.nanopub.belscripts.parse_belscript(f):
@@ -110,77 +114,96 @@ def belscript(fn: str) -> Iterator[Nanopub]:
             yield nanopub
 
     except Exception as e:
-        log.info(f'Could not process belscript {fn} {e}')
+        log.info(f"Could not process belscript {fn} {e}")
         quit()
 
 
 def migrate1to2(nanopub: Nanopub) -> Nanopub:
     """Convert Nanopub to BEL 2.0.0 from BEL 1"""
 
-    if 'nanopub' in nanopub:
-        for idx, assertion in enumerate(nanopub['nanopub']['assertions']):
+    if "nanopub" in nanopub:
+        for idx, assertion in enumerate(nanopub["nanopub"]["assertions"]):
 
             belstr = f'{assertion["subject"]} {assertion["relation"]} {assertion["object"]}'
 
             try:
-                nanopub['nanopub']['assertions'][idx] = bel.lang.migrate_1_2.migrate_into_components(belstr)
+                nanopub["nanopub"]["assertions"][idx] = bel.lang.migrate_1_2.migrate_into_triple(
+                    belstr
+                )
             except Exception as e:
-                log.warning(f'Could not migrate {belstr}:  e')
+                log.warning(f"Could not migrate {belstr}:  {str(e)}")
 
-        nanopub['nanopub']['type']['name'] = 'BEL'
-        nanopub['nanopub']['type']['version'] = '2.0.0'
+        nanopub["nanopub"]["type"]["name"] = "BEL"
+        nanopub["nanopub"]["type"]["version"] = "2.1.0"
 
     return nanopub
+
+
+def get_pubmed_json(pmid):
+    pubmed = pubmed_json_coll.get(str(pmid))
+    return pubmed
 
 
 def add_pubmed_info(nanopub: Nanopub) -> Nanopub:
     """Process Nanopub and add Pubmed info to it if possible"""
 
-    # sleep for 10th of a second as Pubmed (with the api_key - see belbio_conf.yml) only allows 10 requests/sec
-    sleep(0.5)
-
     # print(json.dumps(nanopub, indent=4))
 
-    if 'nanopub' in nanopub:
-        if 'citation' in nanopub['nanopub'] and nanopub['nanopub']['citation']:
-            if 'database' in nanopub['nanopub']['citation']:
-                if nanopub['nanopub']['citation']['database']['name'].lower() == 'pubmed':
+    if "nanopub" in nanopub:
+        if "citation" in nanopub["nanopub"] and nanopub["nanopub"]["citation"]:
+            if "database" in nanopub["nanopub"]["citation"]:
+                if nanopub["nanopub"]["citation"]["database"]["name"].lower() == "pubmed":
 
-                    pmid = nanopub['nanopub']['citation']['database']['id']
+                    pmid = nanopub["nanopub"]["citation"]["database"]["id"]
                     if pmid:
-                        pubmed = bel.nanopub.pubmed.get_pubmed(pmid)
+                        # pubmed = bel.nanopub.pubmed.get_pubmed(pmid)
+                        pubmed = get_pubmed_json(pmid)
                         if pubmed:
-                            if pubmed.get('authors'):
-                                nanopub['nanopub']['citation']['authors'] = pubmed.get('authors')
-                            if pubmed.get('title'):
-                                nanopub['nanopub']['citation']['title'] = pubmed.get('title')
-                            if pubmed.get('journal_title'):
-                                nanopub['nanopub']['citation']['source_name'] = pubmed.get('journal_title')
-                            if pubmed.get('pub_date'):
-                                nanopub['nanopub']['citation']['date_published'] = pubmed.get('pub_date')
+                            if pubmed["article"].get("authors", False):
+                                nanopub["nanopub"]["citation"]["authors"] = pubmed["article"][
+                                    "authors"
+                                ]
 
+                            if pubmed["article"].get("title", False):
+                                nanopub["nanopub"]["citation"]["title"] = pubmed["article"]["title"]
+
+                            if pubmed["article"].get("journal_title", False):
+                                nanopub["nanopub"]["citation"]["source_name"] = pubmed["article"][
+                                    "journal_title"
+                                ]
+
+                            if pubmed["article"].get("pub_date", False):
+                                nanopub["nanopub"]["citation"]["date_published"] = pubmed[
+                                    "article"
+                                ]["pub_date"]
+
+                            if pubmed["article"].get("abstract", False):
+                                nanopub["nanopub"]["metadata"]["gd_abstract"] = pubmed["article"][
+                                    "abstract"
+                                ]
+                        import json
     return nanopub
 
 
 def reformat_assertions(nanopub: Nanopub, fmt: str) -> Nanopub:
     """Reformat Assertions to short, medium or long form"""
 
-    if 'nanopub' in nanopub:
-        for idx, assertion in enumerate(nanopub['nanopub']['assertions']):
-            s = assertion['subject']
-            r = assertion.get('relation', '')
-            o = assertion.get('object', '')
+    if "nanopub" in nanopub:
+        for idx, assertion in enumerate(nanopub["nanopub"]["assertions"]):
+            s = assertion["subject"]
+            r = assertion.get("relation", "")
+            o = assertion.get("object", "")
 
-            triple = bo.parse(f'{s} {r} {o}').to_triple(fmt=fmt)
-            if not triple.get('subject', False):
-                log.info(f'S: {s}  R: {r}  O: {o}   Triple: {triple}')
-                log.info('Skipping assertion')
+            triple = bo.parse(f"{s} {r} {o}").to_triple(fmt=fmt)
+            if not triple.get("subject", False):
+                log.info(f"S: {s}  R: {r}  O: {o}   Triple: {triple}")
+                log.info("Skipping assertion")
                 continue
 
-            nanopub['nanopub']['assertions'][idx]['subject'] = triple['subject']
-            if 'relation' in triple:
-                nanopub['nanopub']['assertions'][idx]['relation'] = triple.get('relation')
-                nanopub['nanopub']['assertions'][idx]['object'] = triple.get('object')
+            nanopub["nanopub"]["assertions"][idx]["subject"] = triple["subject"]
+            if "relation" in triple:
+                nanopub["nanopub"]["assertions"][idx]["relation"] = triple.get("relation")
+                nanopub["nanopub"]["assertions"][idx]["object"] = triple.get("object")
 
     return nanopub
 
@@ -188,28 +211,37 @@ def reformat_assertions(nanopub: Nanopub, fmt: str) -> Nanopub:
 def update_bel_ns(bel, ns_mappings):
     """Update Namespace Prefixes in BEL strings"""
 
-    matches = re.findall('([A-Z]+):\S', bel)
+    matches = re.findall("([A-Z]+):\S", bel)
     for match in matches:
-        if match in ns_mappings['namespaces']:
-            bel = bel.replace(match, ns_mappings['namespaces'][match])
+        if match in ns_mappings["namespaces"]:
+            bel = bel.replace(match, ns_mappings["namespaces"][match])
     return bel
 
 
 def remap_namespaces(nanopub: Nanopub, ns_mappings) -> Nanopub:
     """Process Nanopub and update Namespace prefixes and Annotation types"""
 
-    if 'nanopub' in nanopub:
-        for idx, anno in enumerate(nanopub['nanopub']['annotations']):
-            anno_type = nanopub['nanopub']['annotations'][idx]['type']
-            if anno_type in ns_mappings['annotations']:
-                nanopub['nanopub']['annotations'][idx]['type'] = ns_mappings['annotations'][anno_type]
-            if 'id' in nanopub['nanopub']['annotations'][idx]:
-                nanopub['nanopub']['annotations'][idx]['id'] = update_bel_ns(nanopub['nanopub']['annotations'][idx]['id'], ns_mappings)
+    if "nanopub" in nanopub:
+        for idx, anno in enumerate(nanopub["nanopub"]["annotations"]):
+            anno_type = nanopub["nanopub"]["annotations"][idx]["type"]
+            if anno_type in ns_mappings["annotations"]:
+                nanopub["nanopub"]["annotations"][idx]["type"] = ns_mappings["annotations"][
+                    anno_type
+                ]
+            if "id" in nanopub["nanopub"]["annotations"][idx]:
+                nanopub["nanopub"]["annotations"][idx]["id"] = update_bel_ns(
+                    nanopub["nanopub"]["annotations"][idx]["id"], ns_mappings
+                )
 
-        for idx, assertion in enumerate(nanopub['nanopub']['assertions']):
-            nanopub['nanopub']['assertions'][idx]['subject'] = update_bel_ns(nanopub['nanopub']['assertions'][idx]['subject'], ns_mappings)
-            if 'object' in nanopub['nanopub']['assertions'][idx]:
-                nanopub['nanopub']['assertions'][idx]['object'] = update_bel_ns(nanopub['nanopub']['assertions'][idx]['object'], ns_mappings)
+        for idx, assertion in enumerate(nanopub["nanopub"]["assertions"]):
+            nanopub["nanopub"]["assertions"][idx]["subject"] = update_bel_ns(
+                nanopub["nanopub"]["assertions"][idx]["subject"], ns_mappings
+            )
+            if "object" in nanopub["nanopub"]["assertions"][idx]:
+                if nanopub["nanopub"]["assertions"][idx]["object"] is not None:
+                    nanopub["nanopub"]["assertions"][idx]["object"] = update_bel_ns(
+                        nanopub["nanopub"]["assertions"][idx]["object"], ns_mappings
+                    )
 
     return nanopub
 
@@ -218,7 +250,7 @@ def update_bel_annotation(annotation):
     """Update BEL Annotations"""
 
     if not belapi_url:
-        log.error('No BEL API defined in the environment - required to update BEL annotations')
+        log.error("No BEL API defined in the environment - required to update BEL annotations")
         raise SystemExit
 
     url = f'{belapi_url}/terms/completions/{annotation["label"]}?annotation_types={annotation["type"]}&size=1'
@@ -226,14 +258,19 @@ def update_bel_annotation(annotation):
 
     if resp.status_code == 200:
         result = resp.json()
-        if len(result['completions']) > 0:
-            annotation['id'] = result['completions'][0]['id']
-            if annotation['type'] == 'Species':
-                annotation['label'] = result['completions'][0]['label']
+        if len(result["completions"]) > 0:
+            annotation["id"] = result["completions"][0]["id"]
+            if annotation["type"] == "Species":
+                annotation["label"] = result["completions"][0]["label"]
         else:
-            annotation['id'] = annotation['label']
+            annotation["id"] = f'TBD:{annotation["label"]}'
     else:
-        annotation['id'] = annotation['label']
+        annotation["id"] = f'TBD:{annotation["label"]}'
+
+    # print("Url", url)
+    # print(resp.json(), "\n\n")
+    # print("Annotation:", annotation, "\n\n")
+    # quit()
 
     return annotation
 
@@ -241,34 +278,34 @@ def update_bel_annotation(annotation):
 def fix_annotations(nanopub: Nanopub) -> Nanopub:
     """Process Nanopub and update Namespace prefixes and Annotation types"""
 
-    if 'nanopub' in nanopub:
-        for idx, anno in enumerate(nanopub['nanopub']['annotations']):
+    if "nanopub" in nanopub:
+        for idx, anno in enumerate(nanopub["nanopub"]["annotations"]):
             update_bel_annotation(anno)
 
-            nanopub['nanopub']['annotations'][idx]['type'] = anno['type']
-            nanopub['nanopub']['annotations'][idx]['id'] = anno.get('id', None)
-            nanopub['nanopub']['annotations'][idx]['label'] = anno['label']
+            nanopub["nanopub"]["annotations"][idx]["type"] = anno["type"]
+            nanopub["nanopub"]["annotations"][idx]["id"] = anno.get("id", None)
+            nanopub["nanopub"]["annotations"][idx]["label"] = anno["label"]
 
     return nanopub
 
 
 def update_metadata(nanopub, metadata, del_md):
 
-    if 'nanopub' in nanopub:
+    if "nanopub" in nanopub:
         # Delete metadata first
         for md_key in del_md:
             try:
-                del nanopub['nanopub']['metadata'][md_key]
+                del nanopub["nanopub"]["metadata"][md_key]
             except Exception:
                 pass
 
         for key in metadata:
-            if metadata[key] in ['False', 'false']:
-                nanopub['nanopub']['metadata'][key] = False
-            elif metadata[key] in ['True', 'true']:
-                nanopub['nanopub']['metadata'][key] = True
+            if metadata[key] in ["False", "false"]:
+                nanopub["nanopub"]["metadata"][key] = False
+            elif metadata[key] in ["True", "true"]:
+                nanopub["nanopub"]["metadata"][key] = True
             else:
-                nanopub['nanopub']['metadata'][key] = metadata[key]
+                nanopub["nanopub"]["metadata"][key] = metadata[key]
 
     return nanopub
 
@@ -276,7 +313,7 @@ def update_metadata(nanopub, metadata, del_md):
 def dedupe_nanopubs(nanopub: Nanopub) -> bool:
     """Check to see if duplicate Nanopub - return True if already seen"""
 
-    if 'nanopub' in nanopub:
+    if "nanopub" in nanopub:
         np_hash = bel.nanopub.nanopubs.hash_nanopub(nanopub)
         if np_hash in np_hashes:
             return True
@@ -289,36 +326,89 @@ def dedupe_nanopubs(nanopub: Nanopub) -> bool:
 def validate_nanopub(nanopub):
     """Validate nanopub"""
 
-    if 'nanopub' in nanopub:
+    if "nanopub" in nanopub:
         results = bel.nanopub.validate.validate(nanopub)
-        if results['ERROR']['STRUCTURE'] or results['ERROR']['ASSERTION'] or results['ERROR']['ANNOTATION']:
-            log.error(f'Nanopub Validation error: {json.dumps(results)}')
-            if 'metadata' in nanopub:
-                nanopub['nanopub']['metadata']['validation_errors'] = results
+        if (
+            results["ERROR"]["STRUCTURE"]
+            or results["ERROR"]["ASSERTION"]
+            or results["ERROR"]["ANNOTATION"]
+        ):
+            log.error(f"Nanopub Validation error: {json.dumps(results)}")
+            if "metadata" in nanopub:
+                nanopub["nanopub"]["metadata"]["validation_errors"] = results
             else:
-                nanopub['nanopub']['metadata'] = {'validation_errors': results}
+                nanopub["nanopub"]["metadata"] = {"validation_errors": results}
 
     return nanopub
 
 
-CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
+CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
 
 @click.command(context_settings=CONTEXT_SETTINGS)
-@click.option('--input_fn', '-i', default='-', help='See input_fn options above')
-@click.option('--output_fn', '-o', default='-', help='See output_fn options above')
-@click.option('--bel1', is_flag=True, default=False, help='Convert BEL1 to BEL 2.0.0')
-@click.option('--pubmed', is_flag=True, default=False, help='Add pubmed info to nanopubs')
-@click.option('--fmt', type=click.Choice(['short', 'medium', 'long']), help='Reformat to BEL Assertions to short, medium or long form')
-@click.option('--remap_fn', help='Namespace prefixes/Annotation types input YAML file - otherwise use builtin defaults, see example format above')
-@click.option('--remap', is_flag=True, default=False, help='Re-map namespace prefixes and annotation types - see default mappings above')
-@click.option('--fix_anno', is_flag=True, default=False, help='Enhance annotations - set ID and Label if a match is found')
-@click.option('--add_md_fn', help='Add metadata from file - see example YAML format above')
-@click.option('--add_md', multiple=True, help='Add e.g. --add_md project=Test, can add multiple --add_md options')
-@click.option('--del_md', multiple=True, help='Delete given metadata key from nanopub, e.g. --del_md project, can add multiple --del_md options, delete metadata happens before adding metadata')
-@click.option('--dedupe', is_flag=True, default=False, help='Deduplicate nanopubs based on a hash of core nanopub fields')
-@click.option('--validate', is_flag=True, default=False, help='Validate nanopubs, assertions, annotations, structure')
-def main(input_fn, output_fn, bel1, pubmed, fmt, remap_fn, remap, fix_anno, add_md_fn, add_md, del_md, validate, dedupe):
+@click.option("--input_fn", "-i", default="-", help="See input_fn options above")
+@click.option("--output_fn", "-o", default="-", help="See output_fn options above")
+@click.option("--bel1", is_flag=True, default=False, help="Convert BEL1 to BEL 2.0.0")
+@click.option("--pubmed", is_flag=True, default=False, help="Add pubmed info to nanopubs")
+@click.option(
+    "--fmt",
+    type=click.Choice(["short", "medium", "long"]),
+    help="Reformat to BEL Assertions to short, medium or long form",
+)
+@click.option(
+    "--remap_fn",
+    help="Namespace prefixes/Annotation types input YAML file - otherwise use builtin defaults, see example format above",
+)
+@click.option(
+    "--remap",
+    is_flag=True,
+    default=False,
+    help="Re-map namespace prefixes and annotation types - see default mappings above",
+)
+@click.option(
+    "--fix_anno",
+    is_flag=True,
+    default=False,
+    help="Enhance annotations - set ID and Label if a match is found",
+)
+@click.option("--add_md_fn", help="Add metadata from file - see example YAML format above")
+@click.option(
+    "--add_md",
+    multiple=True,
+    help="Add e.g. --add_md project=Test, can add multiple --add_md options",
+)
+@click.option(
+    "--del_md",
+    multiple=True,
+    help="Delete given metadata key from nanopub, e.g. --del_md project, can add multiple --del_md options, delete metadata happens before adding metadata",
+)
+@click.option(
+    "--dedupe",
+    is_flag=True,
+    default=False,
+    help="Deduplicate nanopubs based on a hash of core nanopub fields",
+)
+@click.option(
+    "--validate",
+    is_flag=True,
+    default=False,
+    help="Validate nanopubs, assertions, annotations, structure",
+)
+def main(
+    input_fn,
+    output_fn,
+    bel1,
+    pubmed,
+    fmt,
+    remap_fn,
+    remap,
+    fix_anno,
+    add_md_fn,
+    add_md,
+    del_md,
+    validate,
+    dedupe,
+):
     """Transform nanopubs
 
     np_transform.py
@@ -418,16 +508,16 @@ default_ns_mappings = {
         metadata = yaml.load(add_md_fn)
     if add_md:
         for md in add_md:
-            (key, val) = md.split('=')
+            (key, val) = md.split("=")
             metadata[key] = val
 
-    if 'belscript' in input_fn:
+    if "belscript" in input_fn:
         for np in belscript(input_fn):
-            if 'nanopub' in np:
+            if "nanopub" in np:
                 cnt += 1
 
             if cnt % batches == 0:
-                log.info(f'Processed {cnt} nanopubs')
+                log.info(f"Processed {cnt} nanopubs")
 
             if bel1:
                 np = migrate1to2(np)
@@ -446,7 +536,7 @@ default_ns_mappings = {
             if validate:
                 np = validate_nanopub(np)
 
-            print('NP', json.dumps(np, indent=4))
+            # print('NP', json.dumps(np, indent=4))
 
             if yaml_flag or json_flag:
                 docs.append(np)
@@ -457,11 +547,11 @@ default_ns_mappings = {
             #     break
     else:
         for np in bel.nanopub.files.read_nanopubs(input_fn):
-            if 'nanopub' in np:
+            if "nanopub" in np:
                 cnt += 1
 
             if cnt % batches == 0:
-                log.info(f'Processed {cnt} nanopubs')
+                log.info(f"Processed {cnt} nanopubs")
 
             if bel1:
                 np = migrate1to2(np)
@@ -477,7 +567,7 @@ default_ns_mappings = {
                 np = update_metadata(np, metadata, del_md)
 
             if dedupe and dedupe_nanopubs(np):
-                print('Skipping nanopub as it is a duplicate')
+                print("Skipping nanopub as it is a duplicate")
                 continue
             if validate:
                 np = validate_nanopub(np)
@@ -493,10 +583,10 @@ default_ns_mappings = {
     elif json_flag:
         json.dump(docs, out_fh, indent=4)
 
-    print(f'Processed {cnt} nanopubs')
+    print(f"Processed {cnt} nanopubs")
 
     out_fh.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
